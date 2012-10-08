@@ -1,0 +1,77 @@
+== Macro
+
+This is a very cool idea, from Chad Fowler, Rails Recipes, 2012. (Chapter 28)
+You write a macro in the ApplicationController class, which adds a method
+to any controller that you write. That method can then be called by any
+action, provided you add it to routes. There are several interesting aspects
+of it, discussed below.
+
+The example includes Cars and Drivers, and puts the macro for search into
+CarsController. (Drivers isn't really needed) The following things are then
+needed to make this work:
+
+1) Add a route for search, inside Car, like this:
+
+  resources :cars do
+    get 'search', :on => :collection
+  end
+
+I do not yet understand the meaning of :on. (Question #1)
+
+2) A view needs to be added to shared/search_results to display the located
+objects; it is nothing more than a simple table of send calls.
+
+3) The Cars controller gets this:
+
+class CarsController < ApplicationController
+  search_action_for :cars, :title => 'Your cars', :search_column => 'serial',:dsplay_as => :model_name
+
+which executes the macro and causes the macro to add the search method to
+that controller.
+
+4) You can then execute it like this:
+http://whatever/cars/search?term=g
+
+The code for the macro looks like this:
+
+  def self.search_action_for(table, options={})
+    table = table.to_s
+    # Look up the constant by name, somehow
+    model_class = table.classify.constantize
+    # Pass a block to define_method, to set up the method in the controller
+    define_method(:search) do
+      @title = options[:title] || "Your #{table.humanize}"
+      # Allow overriding of the search column
+      search_column = options[:search_column] || 'model_name'
+      @display_as = options[:display_as] || :model_name
+      @display_path = options[:display_path] || "#{table.singularize}_path"
+      @results = model_class.where("#{search_column} like ?", "%#{params[:term]}%")
+      render 'shared/search_results'
+    end
+  end
+
+where model_name is an attribute in the Car model.
+I am curious about the 'classify', 'constantize', 'humanize', and 
+'singularize' methods.
+
+'classify' is in ActiveSupport::Inflector. It creates a class name from
+a plural table name. If you give it "posts", you will get "Post".
+Then, calling 'constantize' tries to find a constant with the name 
+specified in the string.
+So, if we do Cars.classify, we get a string "Car", and then it will become
+a constant. (which can then be used as a class name)
+
+'humanize' capitalizes the first word and turns underscores into spaces
+and strips off a trailing _id. So, 'member_id' would be turned into 'Member'.
+
+'singularize' is the reverse of 'pluralize'.
+
+Fowler also has an interesting comment:
+"Note that we are calling where() on the where variable. This was set outside
+the scope of our dynamic method definition to the model class for which
+we're creating a search action. That class, via Ruby's support for closures,
+gets embedded in the action and won't be looked up again when the action
+is invoked."
+I don't understand this statement. 'model_name' must be a valid attribute
+of the model; but I don't see how it is outside the scope of the dynamic
+method definition.
